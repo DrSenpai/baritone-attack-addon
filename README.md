@@ -91,7 +91,7 @@ The release-ready JAR is written to `build/libs/` and includes both the addon
 version and Minecraft version in its filename. For example:
 
 ```text
-build/libs/baritone-attack-addon-1.0.0-mc26.2.jar
+build/libs/baritone-attack-addon-1.0.1-mc26.2.jar
 ```
 
 The versions are configured in `gradle.properties`.
@@ -105,11 +105,11 @@ with a Fabric profile for Minecraft 26.2.
 ## GitHub releases
 
 Pushing a tag that matches the configured addon version starts the release
-workflow. For version `1.0.0`, create and push the tag with:
+workflow. For version `1.0.1`, create and push the tag with:
 
 ```sh
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 After the workflow succeeds, the built JAR is attached to the corresponding
