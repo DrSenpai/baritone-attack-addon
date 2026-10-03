@@ -48,7 +48,7 @@ public class AttackAddonClient implements ClientModInitializer {
             "magma_cube"
     );
     private static final List<String> TOP_LEVEL_SUGGESTIONS = Stream.concat(
-            Stream.of("stop", "status", "all", "hostile", "friendly", "range "),
+            Stream.of("stop", "off", "status", "all", "hostile", "friendly", "range "),
             COMMON_MOBS.stream()
     ).toList();
 
@@ -199,18 +199,37 @@ public class AttackAddonClient implements ClientModInitializer {
 
             if (first.equals("status")) {
 
-                String targets = switch (targetMode) {
-                    case ALL -> "all mobs";
-                    case HOSTILE -> "hostile mobs";
-                    case FRIENDLY -> "friendly mobs";
-                    case SPECIFIC -> TARGETS.toString();
-                };
+                String mode = active
+                        ? switch (targetMode) {
+                            case ALL -> "all";
+                            case HOSTILE -> "hostile";
+                            case FRIENDLY -> "friendly";
+                            case SPECIFIC -> "specific";
+                        }
+                        : "none";
+                String targets = !active
+                        ? "none"
+                        : switch (targetMode) {
+                            case ALL -> "all mobs";
+                            case HOSTILE -> "hostile mobs";
+                            case FRIENDLY -> "friendly mobs";
+                            case SPECIFIC -> String.join(
+                                    ", ",
+                                    TARGETS.stream()
+                                            .map(id -> id.toString())
+                                            .sorted()
+                                            .toList()
+                            );
+                        };
 
                 logDirect(
-                        "Attack: "
+                        "Attack status: "
                                 + (active ? "ON" : "OFF")
+                                + ", mode="
+                                + mode
                                 + ", range="
                                 + range
+                                + " blocks"
                                 + ", targets="
                                 + targets
                 );
@@ -431,29 +450,49 @@ public class AttackAddonClient implements ClientModInitializer {
 
             String first = entered.get(0);
 
-            // These commands do not take additional arguments.
-            if (first.equals("stop") || first.equals("status")) {
-                return Stream.empty();
-            }
-
             if (first.equals("range")) {
-                if (entered.size() == 1) {
+                if (entered.size() == 1
+                        || (entered.size() == 2 && entered.get(1).isEmpty())) {
+                    String prefix = entered.size() == 1 ? first : "";
                     return java.util.stream.IntStream.rangeClosed(1, MAX_RANGE)
-                            .mapToObj(value -> " " + value);
+                            .mapToObj(value -> "range " + value)
+                            .filter(suggestion -> suggestion.contains(prefix));
                 }
 
                 return Stream.empty();
             }
 
+            if (entered.size() == 1) {
+                if (first.equals("stop")
+                        || first.equals("status")
+                        || first.equals("off")
+                        || first.equals("all")
+                        || first.equals("hostile")
+                        || first.equals("friendly")) {
+                    return Stream.empty();
+                }
+
+                return Stream.concat(
+                                TOP_LEVEL_SUGGESTIONS.stream(),
+                                COMMON_MOBS.stream()
+                        )
+                        .filter(suggestion -> suggestion.contains(first));
+            }
+
             // These target modes do not take additional arguments.
-            if (first.equals("all")
+            if (first.equals("stop")
+                    || first.equals("status")
+                    || first.equals("off")
+                    || first.equals("all")
                     || first.equals("hostile")
                     || first.equals("friendly")) {
                 return Stream.empty();
             }
 
             // Once a specific mob is selected, only additional mob names are valid.
-            return COMMON_MOBS.stream();
+            String current = entered.get(entered.size() - 1);
+            return COMMON_MOBS.stream()
+                    .filter(suggestion -> suggestion.contains(current));
         }
 
         // Describe the command for Baritone's help output.

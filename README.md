@@ -28,7 +28,7 @@ Run these commands through Baritone's chat command interface:
 | `#attack friendly` | Attack the nearest non-hostile mob. |
 | `#attack all` | Attack the nearest mob of any type. |
 | `#attack range <1-5>` | Set the detection range in blocks. |
-| `#attack status` | Show whether attacking is enabled and the current settings. |
+| `#attack status` | Show whether attacking is enabled, the target mode, range, and selected targets. |
 | `#attack stop` / `#attack off` | Disable attacking and clear the selected targets. |
 
 Examples:
