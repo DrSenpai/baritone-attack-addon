@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "baritone-attack-addon",
+  "version": "${version}",
+  "name": "Baritone Attack Addon",
+  "description": "Adds a client-side #attack command to Baritone 26.2.",
+  "authors": ["Jakob"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "de.jakob.baritoneattack.AttackAddonClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.6",
+    "minecraft": "26.2",
+    "fabric-api": "*",
+    "baritone-meteor": "*"
+  }
+}
