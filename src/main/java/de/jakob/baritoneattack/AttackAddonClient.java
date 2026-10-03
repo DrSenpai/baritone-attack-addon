@@ -8,6 +8,8 @@ import baritone.api.command.exception.CommandNotEnoughArgumentsException;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -27,13 +29,34 @@ public class AttackAddonClient implements ClientModInitializer {
     private static final Minecraft MC = Minecraft.getInstance();
 
     private static boolean active = false;
-    private static boolean allMobs = false;
-    private static boolean hostileOnly = false;
+    private static TargetMode targetMode = TargetMode.SPECIFIC;
 
-    private static final int MAX_RANGE = 4;
+    private static final int MAX_RANGE = 5;
     private static double range = MAX_RANGE;
 
     private static final Set<Identifier> TARGETS = new HashSet<>();
+    private static final List<String> COMMON_MOBS = List.of(
+            "zombie",
+            "skeleton",
+            "creeper",
+            "spider",
+            "enderman",
+            "witch",
+            "pillager",
+            "vindicator",
+            "blaze",
+            "magma_cube"
+    );
+    private static final List<String> TOP_LEVEL_SUGGESTIONS = Stream.concat(
+            Stream.of("stop", "status", "all", "hostile", "range "),
+            COMMON_MOBS.stream()
+    ).toList();
+
+    private enum TargetMode {
+        SPECIFIC,
+        HOSTILE,
+        ALL
+    }
 
     @Override
     public void onInitializeClient() {
@@ -51,48 +74,56 @@ public class AttackAddonClient implements ClientModInitializer {
 
     private static void tick() {
 
-        if (!active
-                || MC.player == null
-                || MC.level == null
-                || MC.gameMode == null) {
+        if (!active) {
+            return;
+        }
+
+        var player = MC.player;
+        var level = MC.level;
+        var gameMode = MC.gameMode;
+
+        if (player == null || level == null || gameMode == null) {
             return;
         }
 
         // Attack only while the player is holding an item in the main hand.
-        if (MC.player.getMainHandItem().isEmpty()) {
+        if (player.getMainHandItem().isEmpty()) {
             return;
         }
 
         // Wait for Minecraft's normal attack cooldown.
-        if (MC.player.getAttackStrengthScale(0.0F) < 1.0F) {
+        if (player.getAttackStrengthScale(0.0F) < 1.0F) {
             return;
         }
 
-        Mob target = findTarget();
+        Mob target = findTarget(player, level);
 
         if (target == null) {
             return;
         }
 
         // Turn the player toward the target before attacking.
-        MC.player.lookAt(
+        player.lookAt(
                 EntityAnchorArgument.Anchor.EYES,
                 target.getEyePosition()
         );
 
         // Use Minecraft's standard attack and swing animation.
-        MC.gameMode.attack(MC.player, target);
-        MC.player.swing(InteractionHand.MAIN_HAND);
+        gameMode.attack(player, target);
+        player.swing(InteractionHand.MAIN_HAND);
     }
 
-    private static Mob findTarget() {
+    private static Mob findTarget(
+            LocalPlayer player,
+            ClientLevel level
+    ) {
 
         double maxDistanceSq = range * range;
 
         Mob best = null;
         double bestDistanceSq = maxDistanceSq;
 
-        for (Entity entity : MC.level.entitiesForRendering()) {
+        for (Entity entity : level.entitiesForRendering()) {
 
             if (!(entity instanceof Mob mob)) {
                 continue;
@@ -102,18 +133,11 @@ public class AttackAddonClient implements ClientModInitializer {
                 continue;
             }
 
-            if (allMobs) {
+            if (targetMode == TargetMode.HOSTILE && !(mob instanceof Monster)) {
+                continue;
+            }
 
-                // In this mode, every living mob is an eligible target.
-
-            } else if (hostileOnly) {
-
-                if (!(mob instanceof Monster)) {
-                    continue;
-                }
-
-            } else {
-
+            if (targetMode == TargetMode.SPECIFIC) {
                 Identifier id =
                         BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType());
 
@@ -122,8 +146,7 @@ public class AttackAddonClient implements ClientModInitializer {
                 }
             }
 
-            double distanceSq =
-                    MC.player.distanceToSqr(mob);
+            double distanceSq = player.distanceToSqr(mob);
 
             if (distanceSq <= bestDistanceSq) {
                 best = mob;
@@ -139,9 +162,7 @@ public class AttackAddonClient implements ClientModInitializer {
         active = false;
 
         TARGETS.clear();
-
-        allMobs = false;
-        hostileOnly = false;
+        targetMode = TargetMode.SPECIFIC;
     }
 
     private static final class AttackCommand implements ICommand {
@@ -158,6 +179,7 @@ public class AttackAddonClient implements ClientModInitializer {
 
             String first =
                     args.getString().toLowerCase(Locale.ROOT);
+            double rangeForSelection = range;
 
             // Handle commands that stop the attack.
 
@@ -174,20 +196,11 @@ public class AttackAddonClient implements ClientModInitializer {
 
             if (first.equals("status")) {
 
-                String targets;
-
-                if (allMobs) {
-
-                    targets = "all mobs";
-
-                } else if (hostileOnly) {
-
-                    targets = "hostile mobs";
-
-                } else {
-
-                    targets = TARGETS.toString();
-                }
+                String targets = switch (targetMode) {
+                    case ALL -> "all mobs";
+                    case HOSTILE -> "hostile mobs";
+                    case SPECIFIC -> TARGETS.toString();
+                };
 
                 logDirect(
                         "Attack: "
@@ -226,7 +239,9 @@ public class AttackAddonClient implements ClientModInitializer {
                     return;
                 }
 
-                if (newRange < 1.0 || newRange > MAX_RANGE) {
+                if (!Double.isFinite(newRange)
+                        || newRange < 1.0
+                        || newRange > MAX_RANGE) {
 
                     logDirect(
                             "Range must be between 1 and "
@@ -237,12 +252,12 @@ public class AttackAddonClient implements ClientModInitializer {
                     return;
                 }
 
-                // Apply the validated range before processing any optional targets.
-                range = newRange;
+                rangeForSelection = newRange;
 
                 // With no further argument, keep the current targets and only change the range.
                 if (!args.hasAny()) {
 
+                    range = newRange;
                     active = true;
 
                     logDirect(
@@ -259,16 +274,13 @@ public class AttackAddonClient implements ClientModInitializer {
                         .toLowerCase(Locale.ROOT);
             }
 
-            // Replace the previous target selection with the new one.
-            TARGETS.clear();
-            allMobs = false;
-            hostileOnly = false;
-
             // Enable attacks against every mob.
 
             if (first.equals("all")) {
 
-                allMobs = true;
+                range = rangeForSelection;
+                TARGETS.clear();
+                targetMode = TargetMode.ALL;
                 active = true;
 
                 logDirect(
@@ -284,7 +296,9 @@ public class AttackAddonClient implements ClientModInitializer {
 
             if (first.equals("hostile")) {
 
-                hostileOnly = true;
+                range = rangeForSelection;
+                TARGETS.clear();
+                targetMode = TargetMode.HOSTILE;
                 active = true;
 
                 logDirect(
@@ -298,20 +312,22 @@ public class AttackAddonClient implements ClientModInitializer {
 
             // Treat the arguments as specific entity types.
 
-            addTarget(first);
+            Set<Identifier> newTargets = new HashSet<>();
+            addTarget(first, newTargets);
 
             while (args.hasAny()) {
 
-                addTarget(
-                        args.getString()
-                                .toLowerCase(Locale.ROOT)
-                );
+                addTarget(args.getString().toLowerCase(Locale.ROOT), newTargets);
             }
 
-            if (TARGETS.isEmpty()) {
+            if (newTargets.isEmpty()) {
                 return;
             }
 
+            range = rangeForSelection;
+            TARGETS.clear();
+            TARGETS.addAll(newTargets);
+            targetMode = TargetMode.SPECIFIC;
             active = true;
 
             logDirect(
@@ -325,7 +341,7 @@ public class AttackAddonClient implements ClientModInitializer {
 
         // Add the entity type when the identifier is valid and registered.
 
-        private static void addTarget(String raw) {
+        private static void addTarget(String raw, Set<Identifier> targets) {
 
             Identifier id;
 
@@ -357,7 +373,7 @@ public class AttackAddonClient implements ClientModInitializer {
                 return;
             }
 
-            TARGETS.add(id);
+            targets.add(id);
         }
 
         // Provide context-sensitive command suggestions.
@@ -367,19 +383,6 @@ public class AttackAddonClient implements ClientModInitializer {
                 String label,
                 IArgConsumer args
         ) {
-
-            List<String> mobs = List.of(
-                    "zombie",
-                    "skeleton",
-                    "creeper",
-                    "spider",
-                    "enderman",
-                    "witch",
-                    "pillager",
-                    "vindicator",
-                    "blaze",
-                    "magma_cube"
-            );
 
             List<String> entered = args.getArgs()
                     .stream()
@@ -391,24 +394,7 @@ public class AttackAddonClient implements ClientModInitializer {
 
             // Suggest top-level commands and common entity types.
             if (entered.isEmpty()) {
-
-                return Stream.of(
-                        "stop",
-                        "status",
-                        "all",
-                        "hostile",
-                        "range ",
-                        "zombie",
-                        "skeleton",
-                        "creeper",
-                        "spider",
-                        "enderman",
-                        "witch",
-                        "pillager",
-                        "vindicator",
-                        "blaze",
-                        "magma_cube"
-                );
+                return TOP_LEVEL_SUGGESTIONS.stream();
             }
 
             String first = entered.get(0);
@@ -433,7 +419,7 @@ public class AttackAddonClient implements ClientModInitializer {
             // Allow additional target modes or entity types after a specific target.
             return Stream.concat(
                     Stream.of("all", "hostile"),
-                    mobs.stream()
+                    COMMON_MOBS.stream()
             );
         }
 
