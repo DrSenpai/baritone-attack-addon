@@ -40,7 +40,7 @@ jobs:
           echo "MINECRAFT_VERSION=$MINECRAFT_VERSION" >> "$GITHUB_ENV"
 
       - name: Build
-        run: ./gradlew --no-daemon build
+        run: bash ./gradlew --no-daemon build
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

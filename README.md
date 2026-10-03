@@ -81,7 +81,7 @@ On Windows:
 On macOS or Linux:
 
 ```sh
-./gradlew build
+bash ./gradlew build
 ```
 
 The release-ready JAR is written to `build/libs/` and includes both the addon
