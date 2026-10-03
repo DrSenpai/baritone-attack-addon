@@ -48,13 +48,14 @@ public class AttackAddonClient implements ClientModInitializer {
             "magma_cube"
     );
     private static final List<String> TOP_LEVEL_SUGGESTIONS = Stream.concat(
-            Stream.of("stop", "status", "all", "hostile", "range "),
+            Stream.of("stop", "status", "all", "hostile", "friendly", "range "),
             COMMON_MOBS.stream()
     ).toList();
 
     private enum TargetMode {
         SPECIFIC,
         HOSTILE,
+        FRIENDLY,
         ALL
     }
 
@@ -137,6 +138,10 @@ public class AttackAddonClient implements ClientModInitializer {
                 continue;
             }
 
+            if (targetMode == TargetMode.FRIENDLY && mob instanceof Monster) {
+                continue;
+            }
+
             if (targetMode == TargetMode.SPECIFIC) {
                 Identifier id =
                         BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType());
@@ -179,8 +184,6 @@ public class AttackAddonClient implements ClientModInitializer {
 
             String first =
                     args.getString().toLowerCase(Locale.ROOT);
-            double rangeForSelection = range;
-
             // Handle commands that stop the attack.
 
             if (first.equals("stop") || first.equals("off")) {
@@ -199,6 +202,7 @@ public class AttackAddonClient implements ClientModInitializer {
                 String targets = switch (targetMode) {
                     case ALL -> "all mobs";
                     case HOSTILE -> "hostile mobs";
+                    case FRIENDLY -> "friendly mobs";
                     case SPECIFIC -> TARGETS.toString();
                 };
 
@@ -214,7 +218,7 @@ public class AttackAddonClient implements ClientModInitializer {
                 return;
             }
 
-            // Update the attack range, optionally with a new target selection.
+            // Update only the distance used to detect eligible targets.
 
             if (first.equals("range")) {
 
@@ -252,33 +256,30 @@ public class AttackAddonClient implements ClientModInitializer {
                     return;
                 }
 
-                rangeForSelection = newRange;
-
-                // With no further argument, keep the current targets and only change the range.
-                if (!args.hasAny()) {
-
-                    range = newRange;
-                    active = true;
-
-                    logDirect(
-                            "Range changed to "
-                                    + range
-                                    + " blocks."
-                    );
-
+                if (args.hasAny()) {
+                    logDirect("Range accepts only one number.");
                     return;
                 }
 
-                // Additional target arguments follow the range.
-                first = args.getString()
-                        .toLowerCase(Locale.ROOT);
+                range = newRange;
+                logDirect(
+                        "Range changed to "
+                                + range
+                                + " blocks."
+                );
+
+                return;
             }
 
             // Enable attacks against every mob.
 
             if (first.equals("all")) {
 
-                range = rangeForSelection;
+                if (args.hasAny()) {
+                    logDirect("'all' cannot be combined with specific mobs.");
+                    return;
+                }
+
                 TARGETS.clear();
                 targetMode = TargetMode.ALL;
                 active = true;
@@ -296,13 +297,39 @@ public class AttackAddonClient implements ClientModInitializer {
 
             if (first.equals("hostile")) {
 
-                range = rangeForSelection;
+                if (args.hasAny()) {
+                    logDirect("'hostile' cannot be combined with specific mobs.");
+                    return;
+                }
+
                 TARGETS.clear();
                 targetMode = TargetMode.HOSTILE;
                 active = true;
 
                 logDirect(
                         "Attacking hostile mobs within "
+                                + range
+                                + " blocks."
+                );
+
+                return;
+            }
+
+            // Enable attacks against friendly mobs only.
+
+            if (first.equals("friendly")) {
+
+                if (args.hasAny()) {
+                    logDirect("'friendly' cannot be combined with specific mobs.");
+                    return;
+                }
+
+                TARGETS.clear();
+                targetMode = TargetMode.FRIENDLY;
+                active = true;
+
+                logDirect(
+                        "Attacking friendly mobs within "
                                 + range
                                 + " blocks."
                 );
@@ -317,14 +344,21 @@ public class AttackAddonClient implements ClientModInitializer {
 
             while (args.hasAny()) {
 
-                addTarget(args.getString().toLowerCase(Locale.ROOT), newTargets);
+                String target = args.getString().toLowerCase(Locale.ROOT);
+                if (target.equals("all")
+                        || target.equals("hostile")
+                        || target.equals("friendly")) {
+                    logDirect("Choose specific mobs or one target mode, not both.");
+                    return;
+                }
+
+                addTarget(target, newTargets);
             }
 
             if (newTargets.isEmpty()) {
                 return;
             }
 
-            range = rangeForSelection;
             TARGETS.clear();
             TARGETS.addAll(newTargets);
             targetMode = TargetMode.SPECIFIC;
@@ -390,8 +424,6 @@ public class AttackAddonClient implements ClientModInitializer {
                     .map(s -> s.toLowerCase(Locale.ROOT))
                     .toList();
 
-            String rawRest = args.rawRest();
-
             // Suggest top-level commands and common entity types.
             if (entered.isEmpty()) {
                 return TOP_LEVEL_SUGGESTIONS.stream();
@@ -404,23 +436,24 @@ public class AttackAddonClient implements ClientModInitializer {
                 return Stream.empty();
             }
 
-            // Suggest valid range values and, optionally, target types.
-            if (first.equals("range") && !rawRest.contains(" ")) {
-                // Suggest each supported range value.
-                return java.util.stream.IntStream.rangeClosed(1, MAX_RANGE)
-                        .mapToObj(value -> "range " + value);
-            }
+            if (first.equals("range")) {
+                if (entered.size() == 1) {
+                    return java.util.stream.IntStream.rangeClosed(1, MAX_RANGE)
+                            .mapToObj(value -> " " + value);
+                }
 
-            // These target modes do not take additional arguments.
-            if (first.equals("all") || first.equals("hostile")) {
                 return Stream.empty();
             }
 
-            // Allow additional target modes or entity types after a specific target.
-            return Stream.concat(
-                    Stream.of("all", "hostile"),
-                    COMMON_MOBS.stream()
-            );
+            // These target modes do not take additional arguments.
+            if (first.equals("all")
+                    || first.equals("hostile")
+                    || first.equals("friendly")) {
+                return Stream.empty();
+            }
+
+            // Once a specific mob is selected, only additional mob names are valid.
+            return COMMON_MOBS.stream();
         }
 
         // Describe the command for Baritone's help output.
@@ -439,9 +472,9 @@ public class AttackAddonClient implements ClientModInitializer {
                     "Usage:",
                     "#attack zombie skeleton creeper",
                     "#attack hostile",
+                    "#attack friendly",
                     "#attack all",
                     "#attack range 5",
-                    "#attack range 5 zombie skeleton",
                     "#attack status",
                     "#attack stop"
             );

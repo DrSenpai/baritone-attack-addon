@@ -7,7 +7,7 @@ them using Minecraft's normal client attack interaction.
 ## Features
 
 - Select one or more entity types, such as `zombie` or `minecraft:skeleton`.
-- Target hostile mobs or all mobs.
+- Target hostile mobs, friendly mobs, or all mobs.
 - Choose a range from 1 to 5 blocks.
 - Automatically select the nearest eligible mob in range.
 - Check the current mode, range, and selected targets with `status`.
@@ -25,9 +25,9 @@ Run these commands through Baritone's chat command interface:
 | --- | --- |
 | `#attack <mob> [mob ...]` | Attack the nearest matching mob. Entity IDs without a namespace use the `minecraft` namespace. |
 | `#attack hostile` | Attack the nearest hostile mob. |
+| `#attack friendly` | Attack the nearest non-hostile mob. |
 | `#attack all` | Attack the nearest mob of any type. |
-| `#attack range <1-5>` | Set the range while keeping the current target selection. |
-| `#attack range <1-5> <mob or mode>` | Set the range and replace the target selection. |
+| `#attack range <1-5>` | Set the detection range in blocks. |
 | `#attack status` | Show whether attacking is enabled and the current settings. |
 | `#attack stop` / `#attack off` | Disable attacking and clear the selected targets. |
 
@@ -37,8 +37,11 @@ Examples:
 #attack zombie skeleton creeper
 #attack minecraft:zombie
 #attack hostile
+#attack friendly
 #attack all
-#attack range 5 zombie skeleton
+#attack range 5
+#attack zombie skeleton
+#attack friendly
 #attack status
 #attack stop
 ```
