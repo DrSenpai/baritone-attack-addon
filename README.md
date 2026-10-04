@@ -9,8 +9,9 @@ them using Minecraft's normal client attack interaction.
 - Select one or more entity types, such as `zombie` or `minecraft:skeleton`.
 - Target hostile mobs, friendly mobs, or all mobs.
 - Choose a range from 1 to 5 blocks.
+- Configure a 1- to 5-second delay between attacks.
 - Automatically select the nearest eligible mob in range.
-- Check the current mode, range, and selected targets with `status`.
+- Check the current mode, range, pause, and selected targets with `status`.
 - Stop automatic attacks at any time with `stop` or `off`.
 
 The addon does not pathfind to targets. It only considers living `Mob` entities
@@ -28,7 +29,8 @@ Run these commands through Baritone's chat command interface:
 | `#attack friendly` | Attack the nearest non-hostile mob. |
 | `#attack all` | Attack the nearest mob of any type. |
 | `#attack range <1-5>` | Set the detection range in blocks. |
-| `#attack status` | Show whether attacking is enabled, the target mode, range, and selected targets. |
+| `#attack pause <1-5>` | Set the delay between attacks in seconds. The default is 0 (no additional delay). |
+| `#attack status` | Show whether attacking is enabled, the target mode, range, pause, and selected targets. |
 | `#attack stop` / `#attack off` | Disable attacking and clear the selected targets. |
 
 Examples:
@@ -40,6 +42,7 @@ Examples:
 #attack friendly
 #attack all
 #attack range 5
+#attack pause 3
 #attack zombie skeleton
 #attack friendly
 #attack status
@@ -51,8 +54,9 @@ Examples:
 While enabled, the addon checks at the end of each client tick for an eligible
 mob within the configured range. It chooses the nearest matching mob, turns the
 player toward it, and uses Minecraft's standard client attack and swing
-interactions. An item must be present in the main hand, and the normal attack
-cooldown must be ready. The addon does not require that the item be a sword.
+interactions. An item must be present in the main hand, the normal attack
+cooldown must be ready, and the configured pause must have elapsed since the
+previous attack. The addon does not require that the item be a sword.
 
 ## Requirements
 
@@ -91,7 +95,7 @@ The release-ready JAR is written to `build/libs/` and includes both the addon
 version and Minecraft version in its filename. For example:
 
 ```text
-build/libs/baritone-attack-addon-1.0.1-mc26.2.jar
+build/libs/baritone-attack-addon-1.0.2-mc26.2.jar
 ```
 
 The versions are configured in `gradle.properties`.
@@ -105,11 +109,11 @@ with a Fabric profile for Minecraft 26.2.
 ## GitHub releases
 
 Pushing a tag that matches the configured addon version starts the release
-workflow. For version `1.0.1`, create and push the tag with:
+workflow. For version `1.0.2`, create and push the tag with:
 
 ```sh
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 After the workflow succeeds, the built JAR is attached to the corresponding

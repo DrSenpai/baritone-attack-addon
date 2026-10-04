@@ -7,16 +7,8 @@ import baritone.api.command.exception.CommandException;
 import baritone.api.command.exception.CommandNotEnoughArgumentsException;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.monster.Monster;
 
 import java.util.HashSet;
 import java.util.List;
@@ -26,15 +18,8 @@ import java.util.stream.Stream;
 
 public class AttackAddonClient implements ClientModInitializer {
 
-    private static final Minecraft MC = Minecraft.getInstance();
+    private final AttackController attackController = new AttackController();
 
-    private static boolean active = false;
-    private static TargetMode targetMode = TargetMode.SPECIFIC;
-
-    private static final int MAX_RANGE = 5;
-    private static double range = MAX_RANGE;
-
-    private static final Set<Identifier> TARGETS = new HashSet<>();
     private static final List<String> COMMON_MOBS = List.of(
             "zombie",
             "skeleton",
@@ -48,16 +33,18 @@ public class AttackAddonClient implements ClientModInitializer {
             "magma_cube"
     );
     private static final List<String> TOP_LEVEL_SUGGESTIONS = Stream.concat(
-            Stream.of("stop", "off", "status", "all", "hostile", "friendly", "range "),
+            Stream.of(
+                    "stop",
+                    "off",
+                    "status",
+                    "all",
+                    "hostile",
+                    "friendly",
+                    "range ",
+                    "pause "
+            ),
             COMMON_MOBS.stream()
     ).toList();
-
-    private enum TargetMode {
-        SPECIFIC,
-        HOSTILE,
-        FRIENDLY,
-        ALL
-    }
 
     @Override
     public void onInitializeClient() {
@@ -66,111 +53,20 @@ public class AttackAddonClient implements ClientModInitializer {
                 .getPrimaryBaritone()
                 .getCommandManager()
                 .getRegistry()
-                .register(new AttackCommand());
+                .register(new AttackCommand(attackController));
 
-        ClientTickEvents.END_CLIENT_TICK.register(client -> tick());
+        ClientTickEvents.END_CLIENT_TICK.register(client -> attackController.tick());
 
         System.out.println("[Baritone Attack Addon] loaded.");
     }
 
-    private static void tick() {
-
-        if (!active) {
-            return;
-        }
-
-        var player = MC.player;
-        var level = MC.level;
-        var gameMode = MC.gameMode;
-
-        if (player == null || level == null || gameMode == null) {
-            return;
-        }
-
-        // Attack only while the player is holding an item in the main hand.
-        if (player.getMainHandItem().isEmpty()) {
-            return;
-        }
-
-        // Wait for Minecraft's normal attack cooldown.
-        if (player.getAttackStrengthScale(0.0F) < 1.0F) {
-            return;
-        }
-
-        Mob target = findTarget(player, level);
-
-        if (target == null) {
-            return;
-        }
-
-        // Turn the player toward the target before attacking.
-        player.lookAt(
-                EntityAnchorArgument.Anchor.EYES,
-                target.getEyePosition()
-        );
-
-        // Use Minecraft's standard attack and swing animation.
-        gameMode.attack(player, target);
-        player.swing(InteractionHand.MAIN_HAND);
-    }
-
-    private static Mob findTarget(
-            LocalPlayer player,
-            ClientLevel level
-    ) {
-
-        double maxDistanceSq = range * range;
-
-        Mob best = null;
-        double bestDistanceSq = maxDistanceSq;
-
-        for (Entity entity : level.entitiesForRendering()) {
-
-            if (!(entity instanceof Mob mob)) {
-                continue;
-            }
-
-            if (!mob.isAlive()) {
-                continue;
-            }
-
-            if (targetMode == TargetMode.HOSTILE && !(mob instanceof Monster)) {
-                continue;
-            }
-
-            if (targetMode == TargetMode.FRIENDLY && mob instanceof Monster) {
-                continue;
-            }
-
-            if (targetMode == TargetMode.SPECIFIC) {
-                Identifier id =
-                        BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType());
-
-                if (!TARGETS.contains(id)) {
-                    continue;
-                }
-            }
-
-            double distanceSq = player.distanceToSqr(mob);
-
-            if (distanceSq <= bestDistanceSq) {
-                best = mob;
-                bestDistanceSq = distanceSq;
-            }
-        }
-
-        return best;
-    }
-
-    private static void stop() {
-
-        active = false;
-
-        TARGETS.clear();
-        targetMode = TargetMode.SPECIFIC;
-    }
-
     private static final class AttackCommand implements ICommand {
+
+        private final AttackController attackController;
+
+        private AttackCommand(AttackController attackController) {
+            this.attackController = attackController;
+        }
 
         @Override
         public void execute(
@@ -188,7 +84,7 @@ public class AttackAddonClient implements ClientModInitializer {
 
             if (first.equals("stop") || first.equals("off")) {
 
-                stop();
+                attackController.stop();
 
                 logDirect("Attack stopped.");
 
@@ -199,23 +95,23 @@ public class AttackAddonClient implements ClientModInitializer {
 
             if (first.equals("status")) {
 
-                String mode = active
-                        ? switch (targetMode) {
+                String mode = attackController.isActive()
+                        ? switch (attackController.getTargetMode()) {
                             case ALL -> "all";
                             case HOSTILE -> "hostile";
                             case FRIENDLY -> "friendly";
                             case SPECIFIC -> "specific";
                         }
                         : "none";
-                String targets = !active
+                String targets = !attackController.isActive()
                         ? "none"
-                        : switch (targetMode) {
+                        : switch (attackController.getTargetMode()) {
                             case ALL -> "all mobs";
                             case HOSTILE -> "hostile mobs";
                             case FRIENDLY -> "friendly mobs";
                             case SPECIFIC -> String.join(
                                     ", ",
-                                    TARGETS.stream()
+                                    attackController.getTargets().stream()
                                             .map(id -> id.toString())
                                             .sorted()
                                             .toList()
@@ -224,12 +120,15 @@ public class AttackAddonClient implements ClientModInitializer {
 
                 logDirect(
                         "Attack status: "
-                                + (active ? "ON" : "OFF")
+                                + (attackController.isActive() ? "ON" : "OFF")
                                 + ", mode="
                                 + mode
                                 + ", range="
-                                + range
+                                + attackController.getRange()
                                 + " blocks"
+                                + ", pause="
+                                + attackController.getPauseSeconds()
+                                + " seconds"
                                 + ", targets="
                                 + targets
                 );
@@ -264,11 +163,11 @@ public class AttackAddonClient implements ClientModInitializer {
 
                 if (!Double.isFinite(newRange)
                         || newRange < 1.0
-                        || newRange > MAX_RANGE) {
+                        || newRange > AttackController.MAX_RANGE) {
 
                     logDirect(
                             "Range must be between 1 and "
-                                    + MAX_RANGE
+                                    + AttackController.MAX_RANGE
                                     + " blocks."
                     );
 
@@ -280,13 +179,44 @@ public class AttackAddonClient implements ClientModInitializer {
                     return;
                 }
 
-                range = newRange;
+                attackController.setRange(newRange);
                 logDirect(
                         "Range changed to "
-                                + range
+                                + attackController.getRange()
                                 + " blocks."
                 );
 
+                return;
+            }
+
+            if (first.equals("pause")) {
+
+                if (!args.hasAny()) {
+                    throw new CommandNotEnoughArgumentsException(2);
+                }
+
+                String pauseString = args.getString();
+                int pauseSeconds;
+
+                try {
+                    pauseSeconds = Integer.parseInt(pauseString);
+                } catch (NumberFormatException e) {
+                    logDirect("Invalid pause: " + pauseString);
+                    return;
+                }
+
+                if (pauseSeconds < 1 || pauseSeconds > 5) {
+                    logDirect("Pause must be between 1 and 5 seconds.");
+                    return;
+                }
+
+                if (args.hasAny()) {
+                    logDirect("Pause accepts only one number.");
+                    return;
+                }
+
+                attackController.setPauseSeconds(pauseSeconds);
+                logDirect("Attack pause changed to " + pauseSeconds + " seconds.");
                 return;
             }
 
@@ -299,13 +229,11 @@ public class AttackAddonClient implements ClientModInitializer {
                     return;
                 }
 
-                TARGETS.clear();
-                targetMode = TargetMode.ALL;
-                active = true;
+                attackController.start(AttackController.TargetMode.ALL, Set.of());
 
                 logDirect(
                         "Attacking all mobs within "
-                                + range
+                                + attackController.getRange()
                                 + " blocks."
                 );
 
@@ -321,13 +249,11 @@ public class AttackAddonClient implements ClientModInitializer {
                     return;
                 }
 
-                TARGETS.clear();
-                targetMode = TargetMode.HOSTILE;
-                active = true;
+                attackController.start(AttackController.TargetMode.HOSTILE, Set.of());
 
                 logDirect(
                         "Attacking hostile mobs within "
-                                + range
+                                + attackController.getRange()
                                 + " blocks."
                 );
 
@@ -343,13 +269,11 @@ public class AttackAddonClient implements ClientModInitializer {
                     return;
                 }
 
-                TARGETS.clear();
-                targetMode = TargetMode.FRIENDLY;
-                active = true;
+                attackController.start(AttackController.TargetMode.FRIENDLY, Set.of());
 
                 logDirect(
                         "Attacking friendly mobs within "
-                                + range
+                                + attackController.getRange()
                                 + " blocks."
                 );
 
@@ -378,16 +302,13 @@ public class AttackAddonClient implements ClientModInitializer {
                 return;
             }
 
-            TARGETS.clear();
-            TARGETS.addAll(newTargets);
-            targetMode = TargetMode.SPECIFIC;
-            active = true;
+            attackController.start(AttackController.TargetMode.SPECIFIC, newTargets);
 
             logDirect(
                     "Attack enabled for: "
-                            + TARGETS
+                            + attackController.getTargets()
                             + " (range "
-                            + range
+                            + attackController.getRange()
                             + ")."
             );
         }
@@ -454,8 +375,23 @@ public class AttackAddonClient implements ClientModInitializer {
                 if (entered.size() == 1
                         || (entered.size() == 2 && entered.get(1).isEmpty())) {
                     String prefix = entered.size() == 1 ? first : "";
-                    return java.util.stream.IntStream.rangeClosed(1, MAX_RANGE)
+                    return java.util.stream.IntStream.rangeClosed(
+                                    1,
+                                    AttackController.MAX_RANGE
+                            )
                             .mapToObj(value -> "range " + value)
+                            .filter(suggestion -> suggestion.contains(prefix));
+                }
+
+                return Stream.empty();
+            }
+
+            if (first.equals("pause")) {
+                if (entered.size() == 1
+                        || (entered.size() == 2 && entered.get(1).isEmpty())) {
+                    String prefix = entered.size() == 1 ? first : "";
+                    return java.util.stream.IntStream.rangeClosed(1, 5)
+                            .mapToObj(value -> "pause " + value)
                             .filter(suggestion -> suggestion.contains(prefix));
                 }
 
@@ -514,6 +450,7 @@ public class AttackAddonClient implements ClientModInitializer {
                     "#attack friendly",
                     "#attack all",
                     "#attack range 5",
+                    "#attack pause 3",
                     "#attack status",
                     "#attack stop"
             );
